@@ -3,6 +3,9 @@
 This is a **super simple sample project** showing how to make a **classic JRPG-style turn-based battle** in the Defold game engine.  
 It’s not a full game — just the basics, easy to read, and perfect for learning or tinkering.  
 
+## Try the Demo
+Check out the playable demo here: [turnbased-simple-battle on itch.io](https://yeqwep.itch.io/turnbased-simple-battle)   
+
 ---
 
 ## What’s Inside?
@@ -24,7 +27,7 @@ Big thanks to [@britzl’s Simple Button example](https://github.com/britzl/publ
 ---
 
 ## License
-MIT License – totally free to use, share, and hack around with 🚀  
+MIT License 🚀  
 
 ---
 
