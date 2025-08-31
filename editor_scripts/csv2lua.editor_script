@@ -1,0 +1,373 @@
+-- -- ----------------------------------------------
+-- -- CSV → Lua table converter
+-- -- ----------------------------------------------
+local M = {}
+-- -- ----------------------------------------------
+-- Utilities
+-- -- ----------------------------------------------
+
+local function trim(s)
+    return s:match("^%s*(.-)%s*$")
+end
+
+local function ends_with(str, suffix)
+    return str:sub(- #suffix) == suffix
+end
+
+local function remove_utf8bom(text)
+    local utf8_bom = string.char(0xEF, 0xBB, 0xBF)
+    if text:sub(1, 3) == utf8_bom then
+        return text:sub(4)
+    end
+    return text
+end
+
+local function parse_csv_line(line)
+    local res = {}
+    local in_quotes = false
+    local field = ""
+    local i = 1
+    while i <= #line do
+        local c = line:sub(i, i)
+        if c == '"' then
+            if line:sub(i + 1, i + 1) == '"' then
+                field = field .. '"'
+                i = i + 1
+            else
+                in_quotes = not in_quotes
+            end
+        elseif c == ',' and not in_quotes then
+            table.insert(res, field)
+            field = ""
+        else
+            field = field .. c
+        end
+        i = i + 1
+    end
+    table.insert(res, field)
+    return res
+end
+
+local function read_csv_lines(path)
+    local f = io.open("." .. path, "r")
+    if not f then return {} end
+    local content = f:read("*a")
+    f:close()
+    content = remove_utf8bom(content)
+
+    local lines = {}
+    local buffer = ""
+    for line in content:gmatch("([^\r\n]*)\r?\n?") do
+        if line ~= "" or buffer ~= "" then
+            buffer = buffer ~= "" and (buffer .. "\n" .. line) or line
+            local quote_count = select(2, buffer:gsub('"', ""))
+            if quote_count % 2 == 0 then
+                table.insert(lines, buffer)
+                buffer = ""
+            end
+        end
+    end
+    if buffer ~= "" then
+        table.insert(lines, buffer)
+    end
+    return lines
+end
+
+local function remove_urls(s)
+    local original = s
+    while s:find("%b()") do
+        s = s:gsub("%b()", function(captured)
+            if captured:match("^%(%s*https?://") then
+                return ""
+            end
+            return captured
+        end)
+        s = trim(s)
+    end
+    return s, s ~= original
+end
+
+local function parse_value(s)
+    s = trim(s)
+    if not s or s == "" then
+        -- print("parse_value nil")
+        return "nil"
+    elseif s:find("[\r\n,]") then
+        s = remove_urls(s)
+        local raw_items = {}
+        local all_numbers = true
+        local all_booleans = true
+
+        for item in s:gmatch("([^\r\n,]+)") do
+            item = trim(item)
+            item = remove_urls(item)
+            if item ~= "" then
+                table.insert(raw_items, item)
+                if not tonumber(item) then
+                    all_numbers = false
+                end
+                if item ~= "true" and item ~= "false" then
+                    all_booleans = false
+                end
+            end
+        end
+        if #raw_items == 0 then return "{}" end
+        local values = {}
+        for _, item in ipairs(raw_items) do
+            if all_numbers then
+                table.insert(values, item)
+            elseif all_booleans then
+                table.insert(values, item)
+            else
+                table.insert(values, '"' .. item .. '"')
+            end
+        end
+        return "{" .. table.concat(values, ", ") .. "}"
+    else
+        s, had_url = remove_urls(s)
+        local item = s
+        if tonumber(s) then
+        elseif s == "true" or s == "false" then
+        else
+            item = '"' .. s .. '"'
+        end
+        if had_url then
+            item = '{' .. item .. '}'
+        end
+        return item
+    end
+end
+
+local function table_to_string(tbl)
+    if type(tbl) ~= "table" then
+        return tbl
+    end
+
+    local is_array = true
+    local count = 0
+    for k, _ in pairs(tbl) do
+        count = count + 1
+        if type(k) ~= "number" then
+            is_array = false
+            break
+        end
+    end
+
+    if count == 0 then return "{}" end
+
+    local parts = {}
+    for k, v in pairs(tbl) do
+        local key_str
+        if is_array then
+            key_str = "" -- 配列はキーなし
+        else
+            if type(k) == "string" and k:match("^%a[%w_]*$") then
+                key_str = k .. "="
+            else
+                key_str = "[" .. table_to_string(k) .. "]="
+            end
+        end
+        local val_str = table_to_string(v)
+        table.insert(parts, key_str .. val_str)
+    end
+
+    return "{" .. table.concat(parts, ",") .. "}"
+end
+
+local function normalize_nested_fields(row)
+    local grouped = {} -- prefixごとにsuffixをまとめる一時テーブル
+
+    -- 1行の各カラムをチェック
+    for key, value in pairs(row) do
+        -- "prefix_suffix" にマッチさせる
+        local prefix, suffix = key:match("^(.-)_(.+)$")
+        if prefix and suffix then
+            -- prefixごとのテーブルを初期化
+            grouped[prefix] = grouped[prefix] or {}
+            -- suffixごとのテーブルを初期化
+            grouped[prefix][suffix] = grouped[prefix][suffix] or {}
+            -- 値を追加（複数要素に対応）
+            table.insert(grouped[prefix][suffix], value)
+        end
+    end
+
+    -- grouped = {
+    --   effects = { name = {...}, value = {...} },
+    --   buffs   = { name = {...}, value = {...}, duration = {...} },
+    -- }
+    -- pprint(grouped)
+
+    -- prefixごとにネストテーブルを作成
+    for prefix, suffixes in pairs(grouped) do
+        local max_len = 0
+        -- suffixごとの配列の最大長を取得（要素数に合わせてネストを作るため）
+        for _, list in pairs(suffixes) do
+            if type(list) == "table" then
+                max_len = math.max(max_len, #list)
+            else
+                max_len = math.max(max_len, 1)
+            end
+        end
+
+        local nested = {} -- 実際にrowにセットするネストテーブル
+        for i = 1, max_len do
+            -- local item = {}
+            -- suffixごとに値をセット
+            for sub, list in pairs(suffixes) do
+                if type(list) == "table" then
+                    -- item[sub] = list[i] -- 複数要素ならインデックスiの値を取得
+                    nested[sub] = list[i]
+                else
+                    -- item[sub] = list    -- 単一要素の場合そのまま
+                    nested[sub] = list
+                end
+            end
+            -- table.insert(nested, item) -- nested配列に追加
+        end
+        -- rowにネストテーブルをセット
+        row[prefix] = table_to_string(nested)
+    end
+
+    -- 元のフラット列（prefix_suffix）は削除
+    for key, _ in pairs(row) do
+        if key:match("_.+$") then
+            row[key] = nil
+        end
+    end
+
+    return row
+end
+-- -- ----------------------------------------------
+-- Main Functions
+-- -- ----------------------------------------------
+local function convert_csv_to_lua(path, use_keys)
+    local lines = read_csv_lines(path)
+    if #lines < 2 then return false, "CSV must have header and at least one row" end
+
+    local headers = parse_csv_line(lines[1])
+    local skip_indices = {}
+
+    for i, h in ipairs(headers) do
+        local h_trim = trim(h)
+        if h_trim:sub(1, 1) == "@" then
+            skip_indices[i] = true
+        end
+    end
+
+    local has_key = trim(headers[1]) == "key"
+    local rows = {}
+    local keys = {}
+
+    for i = 2, #lines do
+        local row_data = parse_csv_line(lines[i])
+        local row_table = {}
+        local start_col = has_key and 2 or 1
+        if has_key then
+            table.insert(keys, row_data[1])
+        end
+
+        for j = start_col, #headers do
+            if not skip_indices[j] then
+                local header = trim(headers[j])
+                -- print("now col",j)
+                row_table[header] = parse_value(row_data[j])
+            end
+        end
+
+        if use_keys == true then
+            row_table = normalize_nested_fields(row_table)
+        end
+
+        table.insert(rows, row_table)
+    end
+
+    local output = {}
+    for i, row in ipairs(rows) do
+        local line_parts = {}
+        for k, v in pairs(row) do
+            local part = k .. " = " .. v
+            table.insert(line_parts, part)
+        end
+
+        if has_key and keys[i] then
+            table.insert(output, "  " .. keys[i] .. " = { " .. table.concat(line_parts, ", ") .. " },")
+        else
+            table.insert(output, "  { " .. table.concat(line_parts, ", ") .. " },")
+        end
+    end
+    table.insert(output, 1, "return {")
+    table.insert(output, "}")
+
+    local result = table.concat(output, "\n")
+
+    -- local lua_path = "." .. path:gsub("%.csv$", ".lua")
+    local lua_path = "." .. path:gsub("%.csv$", ".lua")
+    -- 元のパスからファイル名を取得しスペースより前の部分だけを抽出
+    local dir_path, file_name = path:match("^(.-)([^/\\]+)$")
+    local base_name = file_name:match("^(%S+)")
+    base_name = base_name:gsub("%.csv$", "")
+    if base_name then
+        lua_path = "." .. dir_path .. base_name .. ".lua"
+    end
+
+    local lua_file = io.open(lua_path, "w")
+    if not lua_file then
+        return false, "Failed to write output file: " .. lua_path
+    end
+    lua_file:write(result)
+    lua_file:close()
+
+    return true, lua_path
+end
+
+function M.get_commands()
+    return {
+        {
+            label = "Convert CSV to Lua Table",
+            locations = { "Assets" },
+            active = function(opts)
+                for _, id in pairs(opts.selection) do
+                    local path = editor.get(id, "path")
+                    if ends_with(path, ".csv") then
+                        return true
+                    end
+                end
+                return false
+            end,
+            query = {
+                selection = { type = "resource", cardinality = "many" }
+            },
+            run = function(opts)
+                local result = editor.ui.show_dialog(editor.ui.dialog({
+                    title = "Use column as header keys?",
+                    buttons = {
+                        editor.ui.dialog_button({
+                            text = "Use",
+                            default = true,
+                            result = true
+                        }),
+                        editor.ui.dialog_button({
+                            text = "No",
+                            cancel = true,
+                            result = false
+                        })
+                    }
+                }))
+                print('Use column as keys:', result)
+                for _, id in pairs(opts.selection) do
+                    local path = editor.get(id, "path")
+                    if ends_with(path, ".csv") then
+                        local ok, result = convert_csv_to_lua(path, result)
+                        if ok then
+                            print("CSV converted: " .. result)
+                        else
+                            print("Error: " .. result)
+                        end
+                    end
+                end
+            end,
+        }
+    }
+end
+
+return M

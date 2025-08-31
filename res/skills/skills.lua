@@ -1,0 +1,17 @@
+return {
+  attack = { type = "physical", power = 6, acc = 80, condition = nil, effects = nil, elm = {"normal"}, target = {ally=false,mode="single"}, buffs = {value=nil,name=nil}, ap = 20 },
+  curse = { type = "support", power = 0, acc = 30, condition = nil, effects = nil, elm = {"shadow"}, target = {ally=false,mode="single"}, buffs = {value=0,name={"curse"}}, ap = 6 },
+  earthspike = { type = "physical", power = 12, acc = 70, condition = nil, effects = nil, elm = {"wild"}, target = {ally=false,mode="multi"}, buffs = {value={2, 3},name={"weaken", "defense_down"}}, ap = 3 },
+  fireball = { type = "magic", power = 8, acc = 90, condition = nil, effects = nil, elm = {"fire"}, target = {ally=false,mode="multi"}, buffs = {value=3,name={"scorch", "weaken"}}, ap = 5 },
+  heal = { type = "healing", power = 0, acc = 100, condition = nil, effects = {"heal_hp"}, elm = {"holy"}, target = {ally=true,mode="single"}, buffs = {value=nil,name=nil}, ap = 10 },
+  holyray = { type = "magic", power = 4, acc = 90, condition = nil, effects = nil, elm = {"holy"}, target = {ally=false,mode="all"}, buffs = {value=nil,name=nil}, ap = 7 },
+  icicle = { type = "magic", power = 3, acc = 80, condition = nil, effects = {"reflect_magic"}, elm = {"water"}, target = {ally=false,mode="multi"}, buffs = {value=0,name={"freeze"}}, ap = 4 },
+  lifedrain = { type = "magic", power = 8, acc = 50, condition = nil, effects = {"drain_hp"}, elm = {"shadow"}, target = {ally=false,mode="single"}, buffs = {value=nil,name=nil}, ap = 5 },
+  meditate = { type = "healing", power = 0, acc = 100, condition = nil, effects = {"heal_hp", "remove_status"}, elm = {"holy"}, target = {ally=true,mode="self"}, buffs = {value=nil,name=nil}, ap = 5 },
+  poison = { type = "support", power = 5, acc = 75, condition = nil, effects = nil, elm = {"poison"}, target = {ally=false,mode="single"}, buffs = {value=2,name={"poison"}}, ap = 3 },
+  revive = { type = "revive", power = 0, acc = 20, condition = nil, effects = {"revive_ally", "remove_status"}, elm = {"holy"}, target = {ally=true,mode="single"}, buffs = {value=nil,name=nil}, ap = 2 },
+  shield = { type = "support", power = 0, acc = 100, condition = nil, effects = nil, elm = {"normal"}, target = {ally=true,mode="self"}, buffs = {value=1,name={"dexterity"}}, ap = 7 },
+  sprint = { type = "support", power = 0, acc = 100, condition = nil, effects = nil, elm = {"normal"}, target = {ally=true,mode="self"}, buffs = {value=1,name={"rengeki"}}, ap = 2 },
+  thunder = { type = "magic", power = 50, acc = 100, condition = nil, effects = nil, elm = {"wild"}, target = {ally=false,mode="random"}, buffs = {value=0,name={"stun"}}, ap = 8 },
+  windslash = { type = "physical", power = 12, acc = 90, condition = nil, effects = nil, elm = {"wild"}, target = {ally=false,mode="random"}, buffs = {value=nil,name=nil}, ap = 1 },
+}

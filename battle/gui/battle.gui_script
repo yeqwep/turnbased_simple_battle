@@ -1,0 +1,582 @@
+-- --------------------------------------------
+-- -- Battle Gui Script
+-- View and Input Management
+-- --------------------------------------------
+
+
+local data = require "main.data"
+-- -----------------------------------------------
+-- Debug Text
+-- -----------------------------------------------
+local function update_debug_text(self, state_data)
+	if self.game_state.get_current_state_name() == nil then
+		return
+	end
+	local state = self.game_state.get_current_state_name()
+
+	local text = "Current State: " .. state .. "\n"
+	if state_data then
+		if state_data.actor_data then
+			local key = state_data.actor_data.name
+			text = text .. "Current Actor: " .. key .. "\n"
+		end
+
+		if state_data.act_queue then
+			local act_queue_text = ""
+			for i, aq in ipairs(state_data.act_queue.hero) do
+				act_queue_text = act_queue_text .. "        " .. i .. " : " .. aq.skill
+			end
+			gui.set_text(self.nodes.gui_command_text, act_queue_text)
+		end
+	end
+	gui.set_text(self.nodes.gui_state_text, text)
+end
+-- -----------------------------------------------
+-- Object Node Management
+-- -----------------------------------------------
+local OBJ_SPACE = 196
+
+local function layout_objects(team)
+	if #team == 0 then return end
+
+	local w = gui.get_width()
+	local ori_pos = gui.get_position(gui.get_node("obj"))
+
+	local total_width = (#team - 1) * OBJ_SPACE
+	local start_x = (w - total_width) / 2
+
+	local pos = vmath.vector3(0, ori_pos.y, 0)
+	for i = 1, #team do
+		local node = team[i]["node"]
+		pos.x = start_x + (i - 1) * OBJ_SPACE
+		gui.set_position(node, pos)
+	end
+end
+
+local function create_obj(team_name, id)
+	local node = gui.clone(gui.get_node("obj"))
+	data.team[team_name][id]["node"] = node
+
+	local img = data.team[team_name][id].name
+	gui.set_texture(node, "tiny")
+	gui.play_flipbook(node, img)
+
+	gui.set_enabled(node, true)
+end
+
+local function init_obj_create(team_name)
+	for i = 1, #data.team[team_name] do
+		create_obj(team_name, i)
+	end
+end
+
+local function sync_obj_state(team_name)
+	for i = 1, #data.team[team_name] do
+		local enemy = data.team[team_name][i]
+		gui.set_enabled(enemy.node, enemy.hp > 0)
+	end
+end
+-- -----------------------------------------------
+-- Heroes Box Management
+-- -----------------------------------------------
+local function sync_hero_state(self)
+	for i = 1, #data.team["hero"] do
+		local hero = data.team["hero"][i]
+
+		local text_node = self.hero_nodes[i]["hero_name"]
+		gui.set_text(text_node, hero.name)
+		text_node = self.hero_nodes[i]["hero_hp"]
+		gui.set_text(text_node,  hero.hp)
+	end
+end
+
+local function hide_hero_box(self)
+	if not self.hero_nodes or #self.hero_nodes == 0 then
+		return
+	end
+	for i, node in ipairs(self.hero_nodes) do
+		gui.delete_node(node["hero_box"])
+	end
+	self.hero_nodes = {}
+end
+
+local function show_hero_box(self)
+	hide_hero_box(self)
+
+	self.hero_nodes = {}
+	for i = 1, #data.team["hero"] do
+		local node = gui.clone_tree(gui.get_node("hero_box"))
+		self.hero_nodes[i] = node
+
+		gui.set_position(node["hero_box"], vmath.vector3((200 * (i - 1)) + 60, 600, 0))
+		gui.set_enabled(node["hero_box"], true)
+		
+	end
+	sync_hero_state(self)
+end
+-- -----------------------------------------------
+-- Command Management
+-- -----------------------------------------------
+local function hide_command_box(self)
+	gui.set_enabled(self.nodes.command_box, false)
+	for i, node in ipairs(self.command_nodes) do
+		gui.delete_node(node["command/box"])
+	end
+	self.command_nodes = {}
+end
+
+local function show_command_box(self, actor_skills)
+	if gui.is_enabled(self.nodes.command_box) then
+		hide_command_box(self)
+	end
+	self.command_nodes = {}
+	for i, skill_name in ipairs(actor_skills) do
+		local node = gui.clone_tree(gui.get_node("command/box"))
+		local text_node = node["command/text"]
+		gui.set_text(text_node, skill_name)
+
+		gui.set_position(node["command/box"], vmath.vector3(20, -45 * i, 0))
+		gui.set_enabled(node["command/box"], true)
+		gui.set_alpha(node["command/box"], .1)
+		self.command_nodes[i] = node
+	end
+	gui.set_enabled(self.nodes.command_box, true)
+end
+-- -----------------------------------------------
+-- Target Management
+-- -----------------------------------------------
+local function clone_target_box(self, text, target_index)
+	local node = gui.clone_tree(gui.get_node("target/box"))
+
+	self.target_nodes[target_index] = node
+	gui.set_position(node["target/box"], vmath.vector3(20, -40 * target_index, 0))
+	gui.set_text(node["target/text"], text)
+	gui.set_alpha(node["target/box"], .0)
+	gui.set_enabled(self.nodes.target_box, true)
+end
+
+local function set_target_message(self, target_team, target_mode, enabled_targets)
+	self.target_nodes = {}
+
+	if target_mode == "single" then
+		gui.set_size(self.nodes.target_box, vmath.vector3(560, 40 + (40 * #data.team[target_team]), 0))
+
+		for i, target_index in ipairs(enabled_targets) do
+			local target_data = data.team[target_team][target_index]
+
+			local text = target_data.name
+			clone_target_box(self, text, i)
+		end
+	elseif target_mode == "multi" then
+		gui.set_size(self.nodes.target_box, vmath.vector3(560, 80, 0))
+
+		local text = ""
+		if target_team == "hero" then
+			text = "all hero"
+		elseif target_team == "enemy" then
+			text = "all enemy"
+		end
+		clone_target_box(self, text, 1)
+	elseif target_mode == "all" then
+		gui.set_size(self.nodes.target_box, vmath.vector3(560, 80, 0))
+
+		local text = "all team"
+		clone_target_box(self, text, 1)
+	elseif target_mode == "self" then
+		gui.set_size(self.nodes.target_box, vmath.vector3(560, 80, 0))
+
+		local text = "self"
+		clone_target_box(self, text, 1)
+	elseif target_mode == "random" then
+		gui.set_size(self.nodes.target_box, vmath.vector3(560, 80, 0))
+
+		local text = "random target"
+		clone_target_box(self, text, 1)
+	else
+		gui.set_size(self.nodes.target_box, vmath.vector3(560, 80, 0))
+
+		local text = "none target"
+		clone_target_box(self, text, 1)
+	end
+end
+
+local function hide_target_box(self)
+	gui.set_enabled(self.nodes.target_box, false)
+	if self.target_nodes then
+		for i, node in ipairs(self.target_nodes) do
+			gui.delete_node(node["target/box"])
+		end
+		self.target_nodes = {}
+	end
+end
+
+local function show_target_box(self, target_team, target_mode, enabled_targets)
+	if gui.is_enabled(self.nodes.target_box) then
+		hide_target_box(self)
+	end
+	set_target_message(self, target_team, target_mode, enabled_targets)
+end
+-- -----------------------------------------------
+-- Message Management
+-- -----------------------------------------------
+local function del_message(nodes)
+	gui.set_enabled(nodes.message_box, false)
+	local text = ""
+	gui.set_text(nodes.message_text, text)
+end
+
+local function set_message(nodes, text)
+	gui.set_text(nodes.message_text, text)
+	gui.set_enabled(nodes.message_box, true)
+end
+
+local function set_act_log(self, ctx)
+
+	if ctx.act_result.actor_name == "" or ctx.act_result.skill_name == "" or #ctx.act_result.targets == 0 or #ctx.act_result.effects == 0  then
+		msg.post(self.out_sender, hash("act_finished"))
+		ctx.act_one_end = false
+		return
+	end
+
+	local text = ctx.act_result.actor_name .. " 's " .. ctx.act_result.skill_name .. " ! " .. "\n"
+
+	for i, target in ipairs(ctx.act_result.targets) do
+		local team = target.team
+		local id = target.id
+		local t_name = data.team[team][id].name
+
+		text = text .. t_name
+
+		if ctx.act_result.effects[i] == nil then
+			return
+		end
+
+		for _, eft in ipairs(ctx.act_result.effects[i]) do
+			if eft.type == nil then
+				text = text .. " miss".. "\n"
+				break
+			elseif eft.type == "damage" then
+				if eft.is_hit then
+					text = text .. " took " .. eft.value .. " damage" .. "\n"
+				else
+					text = text .. " not damage " .. "\n"
+				end
+			elseif eft.type == "buff" then
+				if eft.is_hit then
+					text = text .. " took " .. eft.buff .. eft.value .. "\n"
+				else
+					text = text .. " not took " .. eft.buff .. "\n"
+				end
+			elseif eft.type == "heal" then
+				if eft.is_hit then
+					text = text .. " healed " .. eft.value .. "\n"
+				else
+					text = text .. " not healed " .. "\n"
+				end
+			else
+				if eft.is_hit then
+					text = text .. " a " .. eft.value .. "\n"
+				else
+					text = text .. " not a " .. eft.buff .. eft.value .. "\n"
+				end
+			end
+
+			if eft.is_dead == true then
+				text = text .. t_name .. " was defeated!"
+				break
+			end
+		end
+	end
+	text = text .. "\n"
+	set_message(self.nodes, text)
+
+	sync_obj_state("enemy")
+	sync_hero_state(self)
+
+	timer.delay(0.5, false, function()
+		ctx.act_one_end = true
+	end)
+end
+-- -------------------
+-- Button Setup
+-- -------------------
+local button_selector = require("tool.button_selector")
+
+-- Commands Selector
+local function setup_command_buttons(self, enabled_buttons)
+	local keys = { box = "command/box", text = "command/text" }
+
+	self.current_menu = button_selector.create(self.command_nodes, keys, enabled_buttons, function(index)
+		msg.post(self.out_sender, hash("selected_command"), { index = index })
+	end, function()
+		msg.post(self.out_sender, hash("cancel_command"))
+	end)
+end
+
+-- Targets Selector
+local function setup_target_buttons(self)
+	local keys = { box = "target/box", text = "target/text" }
+
+	self.current_menu = button_selector.create(self.target_nodes, keys, nil, function(index)
+		msg.post(self.out_sender, hash("selected_target"), { index = index })
+	end, function()
+		msg.post(self.out_sender, hash("cancel_target"))
+	end)
+end
+-- -----------------------------------------------
+-- Input Box Management
+-- -----------------------------------------------
+local function disable_command_boxes(self)
+	hide_command_box(self)
+	hide_target_box(self)
+	if self.current_menu then
+		self.current_menu = nil
+	end
+	gui.set_enabled(self.nodes.command_box, false)
+	gui.set_enabled(self.nodes.target_box, false)
+end
+
+-- ---------------------------------
+-- State Management
+-- ---------------------------------
+local state_manager = require("tool.state_manager")
+
+local function create_state(self)
+	self.game_state = state_manager.create_state_manager({
+		-- max_history_size = 200,
+	})
+	self.game_state.set_context({
+		message_timer = nil,
+		message_duration = 1.0,
+
+		actor_name = "",
+		targets = {},
+		skill_name = "",
+		effect_type = {},
+		effect_values = {},
+		is_hits = {},
+		is_dead = {},
+
+		act_result = {},
+		act_one_end = false
+	})
+	local states = {
+		idle = {
+			name = "idle",
+			enter = function(ctx, state_data)
+				update_debug_text(self, state_data)
+			end,
+		},
+		command_select = {
+			name = "command_select",
+			enter = function(ctx, state_data)
+				show_command_box(self, state_data.actor_skills)
+
+				setup_command_buttons(self, state_data.enabled_skills)
+
+				show_target_box(self, state_data.target_team, state_data.target_mode, state_data.enabled_targets)
+
+				update_debug_text(self, state_data)
+			end,
+			exit = function(ctx, state_data)
+			end,
+			on_input = function(ctx, action_id, action)
+				if self.current_menu then
+					button_selector.on_input(self.current_menu, action_id, action)
+				end
+			end
+		},
+		target_select = {
+			name = "target_select",
+			enter = function(ctx, state_data)
+				show_target_box(self, state_data.target_team, state_data.target_mode, state_data.enabled_targets)
+
+				setup_target_buttons(self)
+
+				update_debug_text(self, state_data)
+			end,
+			exit = function(ctx, state_data)
+			end,
+			on_input = function(ctx, action_id, action)
+				if self.current_menu then
+					button_selector.on_input(self.current_menu, action_id, action)
+				end
+			end
+		},
+		show_message = {
+			name = "show_message",
+			enter = function(ctx, state_data)
+				disable_command_boxes(self)
+				local text = ""
+				if self.dictionary then
+					text = self.dictionary[state_data.key]
+				end
+				set_message(self.nodes, text)
+
+				local duration = ctx.message_duration or 1
+				if ctx.message_timer then
+					timer.cancel(ctx.message_timer)
+				end
+
+				ctx.message_timer = timer.delay(duration, false, function()
+					msg.post(".", hash("hide_message"))
+					ctx.message_timer = nil
+				end)
+
+				update_debug_text(self, state_data)
+			end,
+			exit = function(ctx, state_data)
+				del_message(self.nodes)
+			end,
+			on_message = function(ctx, message_id, message, sender)
+				if message_id == hash("hide_message") then
+					if ctx.message_timer then
+						timer.cancel(ctx.message_timer)
+						ctx.message_timer = nil
+					end
+					del_message(self.nodes)
+					msg.post(self.out_sender, hash("showed_message"))
+				elseif message_id == hash("next_message") then
+				end
+			end,
+		},
+		act = {
+			name = "act",
+
+			enter = function(ctx, state_data)
+				update_debug_text(self, state_data)
+
+				disable_command_boxes(self)
+
+				ctx.act_one_end = false
+			end,
+
+			exit = function(ctx, state_data)
+				del_message(self.nodes)
+			end,
+
+			on_message = function(ctx, message_id, message, sender)
+				if message_id == hash("act_message") then
+					ctx.act_result = message
+					set_act_log(self, ctx)
+				end
+			end,
+
+			on_input = function(ctx, action_id, action)
+				if action_id == hash("touch") and action.released then
+					if ctx.act_one_end then
+						msg.post(self.out_sender, hash("act_finished"))
+						ctx.act_one_end = false
+					end
+				end
+			end
+		},
+	}
+	-- 状態を登録
+	self.game_state.add_states(states)
+
+	self.game_state.transition("idle")
+end
+-- -----------------------------------------------
+-- Init Setting
+-- -----------------------------------------------
+local function pre_get_nodes(self)
+	self.nodes = {}
+	self.nodes["parent"] = gui.get_node("parent")
+	self.nodes["turn"] = gui.get_node("turn")
+
+	self.nodes["hero_box"] = gui.get_node("hero_box")
+	self.nodes["hero_box_oripos"] = gui.get_position(self.nodes["hero_box"])
+
+	self.nodes["message_box"] = gui.get_node("text_box")
+	self.nodes["message_text"] = gui.get_node("text")
+
+	self.nodes["target_box"] = gui.get_node("target_box")
+	self.nodes["command_box"] = gui.get_node("command_box")
+
+	self.nodes["gui_state_text"] = gui.get_node("gui_state_text")
+	self.nodes["gui_command_text"] = gui.get_node("gui_command_text")
+
+	self.hero_nodes = {}
+	self.command_nodes = {}
+	self.target_nodes = {}
+end
+
+local function pre_get_text(self)
+	local base_file_path = "res.text.battle_"
+	local lang = data.config.lang or "en"
+	self.dictionary = {}
+	local file_path = base_file_path .. lang
+	local ok, result = pcall(require, file_path)
+	if ok then
+		self.dictionary = result
+	else
+		print("**** Text data load error :", file_path)
+		self.dictionary = require("res.text.battle_en")
+	end
+end
+-- -----------------------------------------------
+-- Main Functions
+-- -----------------------------------------------
+function init(self)
+	pre_get_nodes(self)
+	pre_get_text(self)
+
+	self.current_menu = nil
+	self.out_sender = nil
+	self.mouse_pos = vmath.vector3(0)
+
+	create_state(self)
+
+	msg.post(".", "acquire_input_focus")
+end
+
+function update(self, dt)
+	if self.game_state then
+		self.game_state.update(dt)
+	end
+end
+
+function on_input(self, action_id, action)
+	if self.game_state then
+		self.game_state.on_input(action_id, action)
+	end
+end
+
+function on_message(self, message_id, message, sender)
+	if self.game_state then
+		self.game_state.on_message(message_id, message, sender)
+	end
+
+	if message_id == hash("battle_in") then
+		show_hero_box(self)
+		init_obj_create("enemy")
+		layout_objects(data.team["enemy"])
+	elseif message_id == hash("go_idle") then
+		disable_command_boxes(self)
+		self.game_state.transition("idle", message)
+	elseif message_id == hash("go_command") then
+		self.out_sender = sender
+		self.game_state.transition("command_select", message)
+	elseif message_id == hash("go_target") then
+		self.out_sender = sender
+		self.game_state.transition("target_select", message)
+	elseif message_id == hash("go_message") then
+		self.out_sender = sender
+		self.game_state.transition("show_message", message)
+	elseif message_id == hash("go_act") then
+		self.out_sender = sender
+		self.game_state.transition("act", message)
+	elseif message_id == hash("hide_input_box") then
+		disable_command_boxes(self)
+	elseif message_id == hash("hide_hero_box") then
+		hide_hero_box(self)
+	end
+end
+
+function final(self)
+	self.game_state.destroy()
+	self.game_state = nil
+
+	msg.post(".", "release_input_focus")
+end

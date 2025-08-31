@@ -1,0 +1,6 @@
+tile_set: "/asset/tilemap/tiny.tilesource"
+layers {
+  id: "layer1"
+  z: 0.0
+}
+material: "/builtins/materials/tile_map.material"

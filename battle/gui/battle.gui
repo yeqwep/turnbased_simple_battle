@@ -1,0 +1,290 @@
+script: "/battle/gui/battle.gui_script"
+fonts {
+  name: "always_on_top"
+  font: "/builtins/fonts/debug/always_on_top.font"
+}
+textures {
+  name: "gui"
+  texture: "/asset/atlas/gui.atlas"
+}
+textures {
+  name: "tiny"
+  texture: "/asset/tilemap/tiny.tilesource"
+}
+nodes {
+  type: TYPE_BOX
+  id: "parent"
+  inherit_alpha: true
+  visible: false
+}
+nodes {
+  position {
+    x: -233.0
+    y: 600.0
+  }
+  size {
+    x: 181.0
+    y: 104.0
+  }
+  type: TYPE_BOX
+  texture: "gui/panel_border_brown"
+  id: "hero_box"
+  pivot: PIVOT_NW
+  parent: "parent"
+  layer: "back"
+  slice9 {
+    x: 32.0
+    y: 32.0
+    z: 32.0
+    w: 32.0
+  }
+  enabled: false
+}
+nodes {
+  position {
+    x: 32.0
+    y: -36.0
+  }
+  size {
+    x: 117.0
+    y: 32.0
+  }
+  type: TYPE_TEXT
+  text: "NAME:"
+  font: "always_on_top"
+  id: "hero_name"
+  pivot: PIVOT_W
+  parent: "hero_box"
+  layer: "text"
+}
+nodes {
+  position {
+    x: 32.0
+    y: -68.0
+  }
+  size {
+    x: 117.0
+    y: 32.0
+  }
+  type: TYPE_TEXT
+  text: "HP:"
+  font: "always_on_top"
+  id: "hero_hp"
+  pivot: PIVOT_W
+  parent: "hero_box"
+  layer: "text"
+}
+nodes {
+  position {
+    x: 40.0
+    y: 200.0
+  }
+  size {
+    x: 320.0
+    y: 160.0
+  }
+  type: TYPE_BOX
+  texture: "gui/panel_border_brown"
+  id: "command_box"
+  pivot: PIVOT_NW
+  parent: "parent"
+  layer: "back"
+  slice9 {
+    x: 32.0
+    y: 32.0
+    z: 32.0
+    w: 32.0
+  }
+  enabled: false
+}
+nodes {
+  position {
+    x: -222.0
+    y: -45.0
+  }
+  type: TYPE_TEMPLATE
+  id: "command"
+  parent: "command_box"
+  inherit_alpha: true
+  template: "/asset/template/select_text.gui"
+}
+nodes {
+  type: TYPE_BOX
+  id: "command/box"
+  parent: "command"
+  overridden_fields: 45
+  template_node_child: true
+}
+nodes {
+  type: TYPE_TEXT
+  text: "ATTACK"
+  id: "command/text"
+  parent: "command/box"
+  overridden_fields: 8
+  template_node_child: true
+}
+nodes {
+  position {
+    x: 40.0
+    y: 200.0
+  }
+  size {
+    x: 880.0
+    y: 160.0
+  }
+  type: TYPE_BOX
+  texture: "gui/panel_border_brown"
+  id: "text_box"
+  pivot: PIVOT_NW
+  parent: "parent"
+  layer: "back"
+  slice9 {
+    x: 32.0
+    y: 32.0
+    z: 32.0
+    w: 32.0
+  }
+  enabled: false
+}
+nodes {
+  position {
+    x: 20.0
+    y: -30.0
+  }
+  size {
+    x: 840.0
+    y: 60.0
+  }
+  type: TYPE_TEXT
+  text: "text"
+  font: "always_on_top"
+  id: "text"
+  pivot: PIVOT_NW
+  parent: "text_box"
+  layer: "text"
+}
+nodes {
+  position {
+    x: 480.0
+    y: 300.0
+  }
+  size {
+    x: 200.0
+    y: 100.0
+  }
+  type: TYPE_TEXT
+  text: "TURN 0"
+  font: "always_on_top"
+  id: "turn"
+  parent: "parent"
+  inherit_alpha: true
+  enabled: false
+}
+nodes {
+  position {
+    x: 360.0
+    y: 200.0
+  }
+  size {
+    x: 560.0
+    y: 80.0
+  }
+  type: TYPE_BOX
+  texture: "gui/panel_border_brown"
+  id: "target_box"
+  pivot: PIVOT_NW
+  parent: "parent"
+  layer: "back"
+  slice9 {
+    x: 32.0
+    y: 32.0
+    z: 32.0
+    w: 32.0
+  }
+  enabled: false
+}
+nodes {
+  position {
+    x: -502.0
+    y: -40.0
+  }
+  type: TYPE_TEMPLATE
+  id: "target"
+  parent: "target_box"
+  inherit_alpha: true
+  template: "/asset/template/select_text.gui"
+}
+nodes {
+  type: TYPE_BOX
+  id: "target/box"
+  parent: "target"
+  overridden_fields: 45
+  template_node_child: true
+}
+nodes {
+  type: TYPE_TEXT
+  text: "e"
+  id: "target/text"
+  parent: "target/box"
+  overridden_fields: 8
+  template_node_child: true
+}
+nodes {
+  position {
+    x: 20.0
+    y: 257.0
+  }
+  size {
+    x: 200.0
+    y: 100.0
+  }
+  type: TYPE_TEXT
+  text: "<text>"
+  font: "always_on_top"
+  id: "gui_state_text"
+  pivot: PIVOT_W
+  parent: "parent"
+  inherit_alpha: true
+}
+nodes {
+  position {
+    x: 20.0
+    y: 446.0
+  }
+  size {
+    x: 600.0
+    y: 100.0
+  }
+  type: TYPE_TEXT
+  text: "<text>"
+  font: "always_on_top"
+  id: "gui_command_text"
+  pivot: PIVOT_W
+  parent: "parent"
+  inherit_alpha: true
+  enabled: false
+}
+nodes {
+  position {
+    x: -191.0
+    y: 340.0
+  }
+  scale {
+    x: 8.0
+    y: 8.0
+  }
+  type: TYPE_BOX
+  texture: "tiny/goblin"
+  id: "obj"
+  parent: "parent"
+  inherit_alpha: true
+  size_mode: SIZE_MODE_AUTO
+}
+layers {
+  name: "back"
+}
+layers {
+  name: "text"
+}
+material: "/builtins/materials/gui.material"
+adjust_reference: ADJUST_REFERENCE_PARENT

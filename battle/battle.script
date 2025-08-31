@@ -1,0 +1,598 @@
+-- --------------------------------------------
+-- -- Battle Main Script
+-- Data and State Management
+-- --------------------------------------------
+
+-- ---------------------------------
+-- Reference Data
+-- ---------------------------------
+local data = require("main.data")
+
+local skill_data = require("res.skills.skills")
+local skill_effects = require("res.skills.skill_effects")
+
+local enemy_roster = require "res.enemy.enemy_roster"
+local enemy_param = require "res.enemy.enemy_param"
+-- ---------------------------------
+-- Module
+-- ---------------------------------
+local ai = require("tool.ai.ai_patterns")
+local common = require("tool.common")
+-- ---------------------------------
+-- URLs
+-- ---------------------------------
+local GUI_URL = "battle:/gui"
+-- ---------------------------------
+-- Temp Team Data
+-- ---------------------------------
+local function init_hero_create()
+	data.team["hero"] = {}
+	for i, h in ipairs(data.heroes) do
+		table.insert(data.team["hero"], common.deepcopy(h))
+	end
+end
+
+local function create_enemy(enemy_name)
+	table.insert(data.team["enemy"], common.deepcopy(enemy_param[enemy_name]))
+	data.team["enemy"][#data.team["enemy"]]["name"] = enemy_name
+end
+
+local function init_enemy_create()
+	data.team["enemy"] = {}
+
+	local enemy_table = enemy_roster[data.enemy_group_num]["enemy"]
+	local num_table = enemy_roster[data.enemy_group_num]["num"]
+
+	for i = 1, #enemy_table do
+		local enemy_name = enemy_table[i]
+		local enemy_num = num_table[i]
+		for j = 1, enemy_num do
+			create_enemy(enemy_name)
+		end
+	end
+end
+-- ---------------------------------
+-- Check Result
+-- ---------------------------------
+local function check_battle_result()
+	-- 勝敗判定
+	local hero_killing = true
+	local enemy_killing = true
+
+	for _, player in ipairs(data.team.hero) do
+		if player.hp > 0 then
+			hero_killing = false
+			break
+		end
+	end
+
+	for _, enemy in ipairs(data.team.enemy) do
+		if enemy.hp > 0 then
+			enemy_killing = false
+			break
+		end
+	end
+
+	return hero_killing,enemy_killing
+end
+-- ---------------------------------
+-- Skill Effect
+-- ---------------------------------
+local function apply_effect(name,team_name, actor_id, target_id, target_team, skill_name)
+	local e_type, value, is_hit, is_dead
+
+	-- スキルの効果をターゲットに適用し、結果を受け取る
+	if skill_effects[name] then
+		e_type, value, is_hit, is_dead = skill_effects[name](team_name, actor_id, target_id, target_team, skill_name)
+	else
+		e_type, value, is_hit, is_dead = nil, nil, nil, nil
+	end
+	return e_type, value, is_hit, is_dead
+end
+
+local function hit_check(actor, skill_name, target_team, target_id)
+	local hit_chance = actor.spd + skill_data[skill_name].acc - data.team[target_team][target_id].spd
+
+	local roll = math.random(1, 99)
+	local is_hit = roll <= hit_chance
+
+	print("hit check:", actor.name, skill_name, target_team, target_id, "roll:", roll, "hit chance:", hit_chance, "is_hit:", is_hit)
+
+
+	return is_hit
+end
+
+local function apply_skill_effects(ctx, actor_id, team_name, skill_name, targets)
+	local effects_result = {
+		-- {
+			-- {value=0, type="damage", is_hit=true, is_dead=false, buff = "stun"},
+			-- {value=0, type="damage", is_hit=true, is_dead=false, buff = "stun"},
+			-- ...
+		--},
+	}
+
+	local e_type, value, is_hit, is_dead  = nil, nil, nil, nil
+
+	ctx.actor_data = data.team[team_name][actor_id]
+
+	for i, target in ipairs(targets) do
+		local target_team = target.team
+		local target_id = target.id
+
+		effects_result[i] = {}
+
+		is_hit = hit_check(ctx.actor_data, skill_name, target_team, target_id)
+		if is_hit == false then
+			table.insert(effects_result[i],{value=0, type=nil, is_hit=false, is_dead=false})
+		else
+			if skill_data[skill_name].power and skill_data[skill_name].power > 0 then
+				
+				e_type, value, is_hit, is_dead = skill_effects["take_damage"](team_name, actor_id, target_id, target_team, skill_name)
+
+				table.insert(effects_result[i],{value = value, type = e_type, is_hit = is_hit, is_dead = is_dead})
+				
+			end
+
+			if not is_dead then 
+				local effects = skill_data[skill_name].effects
+				if effects == nil then
+				elseif type(effects) == "table" then
+					for _, name in ipairs(effects) do
+						
+						if is_dead then break end
+						
+						e_type, value, is_hit, is_dead = apply_effect(name, team_name, actor_id, target_id, target_team, skill_name)
+						table.insert(effects_result[i],{value = value, type = e_type, is_hit = is_hit, is_dead = is_dead})
+					end
+				end
+			end
+		end
+	end
+
+	return effects_result
+end
+-- ---------------------------------
+-- Temp Context Management
+-- ---------------------------------
+local function reset_temp_ctx(ctx)
+	ctx.temp_team = "hero"
+	ctx.actor_data = {}
+	ctx.temp_skill = ""
+	ctx.enabled_skills = {}
+	ctx.enabled_targets = {}
+	ctx.target_id = 1
+	ctx.target_team = "enemy"
+	ctx.target_mode = "none"
+	ctx.result_table = {
+		actor_name = "",
+		skill_name = "",
+		targets = {},
+		effects = {},
+	}
+end
+
+local function check_enabled_skill(actor_skills)
+	local enabled_skills = {}
+	for i=1, #actor_skills do
+		enabled_skills[i] = true
+	end
+	return enabled_skills
+end
+-- ---------------------------------
+-- Actor select
+-- ---------------------------------
+local function current_actor_select(actor_id, current_team, back)
+	local step = back and -1 or 1
+	local next_actor = actor_id + step
+	while next_actor >= 1 and next_actor <= #current_team do
+		if current_team[next_actor].hp > 0 or current_team[next_actor] == nil then
+			break
+		end
+		next_actor = next_actor + step
+	end
+	if next_actor < 1 then
+		next_actor = 1
+	end
+
+	return next_actor
+end
+-- ---------------------------------
+-- Target check
+-- ---------------------------------
+local function check_enabled_targets(targets, skill_name)
+	local enabled_targets = {}
+	if skill_name and skill_data[skill_name].type == "revive" then
+		for i, _ in ipairs(targets) do
+			table.insert(enabled_targets, i)
+		end
+	else
+		for i, target in ipairs(targets) do
+			if target.hp > 0 then
+				table.insert(enabled_targets, i)
+			end
+		end
+	end
+	return enabled_targets
+end
+local function get_target_range(skill_name, we_name)
+	local target_ally = skill_data[skill_name].target.ally
+	local target_mode = skill_data[skill_name].target.mode
+
+	local target_team = "enemy"
+	if target_ally == true then
+		target_team = we_name
+	elseif target_ally == false then
+		target_team = we_name == "enemy" and "hero" or "enemy"
+	end
+
+	return target_team, target_mode
+end
+local function check_target_ids(team_name, actor_id, target_id, target_team, target_mode, enabled_targets)
+	local targets = { 
+		-- {team = "enemy", id = 1}
+	}
+
+	if target_mode == "single" then
+		if target_id == nil then
+			target_id = 1
+			if #enabled_targets > 0 then
+				local temp_id = math.random(1, #enabled_targets)
+				target_id = enabled_targets[temp_id]
+			end
+		else
+			local is_enabled = false
+			for _, index in ipairs(enabled_targets) do
+				if index == target_id then
+					is_enabled = true
+					break
+				end
+			end
+			if is_enabled == false then
+				target_id = 1
+				if #enabled_targets > 0 then
+					local temp_id = math.random(1, #enabled_targets)
+					target_id = enabled_targets[temp_id]
+				end
+			end
+		end
+		table.insert(targets, {team = target_team, id = target_id})
+	elseif target_mode == "multi" then
+		for _, index in ipairs(enabled_targets) do
+			table.insert(targets, {team = target_team, id = index})
+		end
+	elseif target_mode == "self" then
+		table.insert(targets, {team = team_name, id = actor_id})
+	else
+		table.insert(targets, {team = team_name, id = actor_id})
+	end
+
+	return targets
+end
+-- ---------------------------------
+-- AI Skill and Target select
+-- ---------------------------------
+local function skill_ai_judge(temp_team, id)
+	local my_prop = data.team[temp_team][id]
+
+	local skill_key = ai["random"](temp_team, data.team, my_prop)
+
+	return skill_key
+end
+
+local function ai_judege(act)
+	act.skill_name = skill_ai_judge(act.team_name, act.actor_id)
+
+	act.target_team, act.target_mode = get_target_range(act.skill_name, act.team_name)
+end
+-- ---------------------------------
+-- Action Queue Processing
+-- ---------------------------------
+local function process_act_queue(ctx)
+
+	local key = next(ctx.act_queue)
+	if not key then
+		msg.post(".",hash("act_finished"))
+		return
+	end
+
+	ctx.result_table = {
+		actor_name = "",
+		skill_name = "",
+		targets = {},
+		effects = {},
+	}
+
+	local act = ctx.act_queue[key]
+	
+	if data.team[act.team_name][act.actor_id].hp <= 0 then
+		table.remove(ctx.act_queue, key)
+		msg.post(".",hash("act_finished"))
+		return
+	end
+
+	ctx.result_table.actor_name = data.team[act.team_name][act.actor_id].name
+
+	if act.skill_name == nil then
+		ai_judege(act)
+	end
+	ctx.result_table.skill_name = act.skill_name
+	
+	ctx.enabled_targets = check_enabled_targets(data.team[act.target_team], act.skill_name)
+
+	ctx.result_table.targets = check_target_ids(act.team_name, act.actor_id, act.target_id,
+	act.target_team, act.target_mode, ctx.enabled_targets)
+
+	ctx.result_table.effects =
+	apply_skill_effects(ctx, act.actor_id, act.team_name, act.skill_name, ctx.result_table.targets)
+
+	msg.post(GUI_URL, "act_message", ctx.result_table)
+	table.remove(ctx.act_queue, key)
+end
+local function sort_action_queue_by_speed(ctx, team_data)
+	table.sort(ctx.act_queue, function(a, b)
+		local a_actor = team_data[a.team_name][a.actor_id]
+		local b_actor = team_data[b.team_name][b.actor_id]
+		local a_speed = a_actor and a_actor.spd or 0
+		local b_speed = b_actor and b_actor.spd or 0
+		return a_speed > b_speed
+	end)
+end
+local function remove_action_from_queue(ctx, team_name, actor_id)
+	for i, queue in ipairs(ctx.act_queue) do
+		if queue.team_name == team_name and queue.actor_id == actor_id then
+			table.remove(ctx.act_queue, i)
+		end
+	end
+end
+local function set_action_queue(ctx, team_name, actor_id, temp_skill, target_team, target_mode, target_id)
+	remove_action_from_queue(ctx, team_name, actor_id)
+
+	table.insert(ctx.act_queue, {
+		team_name = team_name,
+		actor_id = actor_id,
+		skill_name = temp_skill,
+		target_team = target_team,
+		target_mode = target_mode,
+		target_id = target_id
+	})
+end
+local function reset_action_queue(ctx)
+	ctx.act_queue = {}
+end
+-- ---------------------------------
+-- Player Skill and Target Select
+-- ---------------------------------
+local function command_ready(ctx)
+	ctx.actor_data = data.team[ctx.temp_team][ctx.current_actor]
+
+	ctx.enabled_skills = check_enabled_skill(ctx.actor_data.skills)
+
+	ctx.target_team = "enemy"
+	ctx.target_mode = "single"
+	ctx.enabled_targets = check_enabled_targets(data.team[ctx.target_team], nil)
+
+	msg.post(GUI_URL, hash("go_command"), {
+		actor_data = ctx.actor_data,
+		actor_skills = ctx.actor_data.skills,
+		enabled_skills = ctx.enabled_skills,
+		enabled_targets = ctx.enabled_targets,
+		target_team = ctx.target_team,
+		target_mode = ctx.target_mode,
+	})
+end
+
+local function command_end(ctx, index)
+	ctx.actor_data = data.team[ctx.temp_team][ctx.current_actor]
+	ctx.temp_skill = ctx.actor_data.skills[index]
+
+	ctx.target_team, ctx.target_mode = get_target_range(ctx.temp_skill, ctx.temp_team)
+
+	ctx.enabled_targets = check_enabled_targets(data.team[ctx.target_team], ctx.temp_skill)
+
+	msg.post(GUI_URL, "go_target", {
+		current_actor = ctx.current_actor,
+		target_team = ctx.target_team,
+		target_mode = ctx.target_mode,
+		enabled_targets = ctx.enabled_targets
+	})
+end
+
+local function target_selected(self, ctx, index)
+	ctx.target_id = ctx.enabled_targets[index]
+
+	set_action_queue(ctx, ctx.temp_team, ctx.current_actor, ctx.temp_skill, ctx.target_team, ctx.target_mode, ctx.target_id)
+
+	ctx.current_actor = current_actor_select(ctx.current_actor, data.team[ctx.temp_team])
+
+	if ctx.current_actor > #data.team.hero then
+		self.game_state.transition("enemy_turn")
+	else
+		msg.post(".", hash("ready_command"))
+	end
+end
+-- ---------------------------------
+-- State Management
+-- ---------------------------------
+local state_manager = require("tool.state_manager")
+local function create_state(self)
+	
+	self.game_state = state_manager.create_state_manager({
+		-- max_history_size = 200,
+	})
+	self.game_state.set_context({
+		current_turn = 0,
+
+		act_queue = { hero = {}, enemy = {} },
+
+		current_actor = 0,
+	})
+	local states = {
+		battle_setup = {
+			name = "battle_setup",
+			enter = function(ctx, state_data)
+				print("Battle script Start!")
+
+				init_hero_create()
+				init_enemy_create()
+
+				msg.post(GUI_URL, hash("battle_in"))
+				msg.post(GUI_URL, hash("go_message"), { key = "battle_start" })
+
+				ctx.current_turn = 0
+			end,
+			exit = function(ctx, state_data)
+			end,
+			on_message = function(ctx, message_id, message, sender)
+				if message_id == hash("showed_message") then
+					self.game_state.transition("turn_start")
+				end
+			end,
+		},
+		turn_start = {
+			name = "turn_start",
+			enter = function(ctx, state_data)
+
+				ctx.current_turn = ctx.current_turn + 1
+				print(string.format("Turn %d Start!", ctx.current_turn))
+				msg.post(GUI_URL, "show_turn", {
+					current_turn = ctx.current_turn,
+				})
+				reset_action_queue(ctx)
+				reset_temp_ctx(ctx)
+
+				msg.post(GUI_URL, "update_target", {})
+
+				self.game_state.transition("player_turn")
+			end
+		},
+		player_turn = {
+			name = "player_turn",
+			enter = function(ctx, state_data)
+				ctx.temp_team = "hero"
+				ctx.current_actor = current_actor_select(0, data.team["hero"])
+
+				msg.post(".", hash("ready_command"))
+			end,
+
+			exit = function(ctx, state_data)
+				msg.post(GUI_URL, "go_idle")
+				msg.post(GUI_URL, "hide_input_box")
+			end,
+
+			on_message = function(ctx, message_id, message, sender)
+				if message_id == hash("ready_command") then
+					command_ready(ctx)
+				elseif message_id == hash("selected_command") then
+					command_end(ctx, message.index)
+				elseif message_id == hash("cancel_command") then
+					ctx.current_actor = current_actor_select(ctx.current_actor, data.team[ctx.temp_team], true)
+					msg.post(".", hash("ready_command"))
+				elseif message_id == hash("selected_target") then
+					target_selected(self, ctx, message.index)
+				elseif message_id == hash("cancel_target") then
+					msg.post(".", hash("ready_command"))
+				end
+			end,
+		},
+
+		enemy_turn = {
+			name = "enemy_turn",
+			enter = function(ctx, state_data)
+				ctx.temp_team = "enemy"
+				ctx.current_actor = 0
+
+				while ctx.current_actor < #data.team[ctx.temp_team] do
+					ctx.current_actor = current_actor_select(ctx.current_actor, data.team[ctx.temp_team])
+					set_action_queue(ctx, ctx.temp_team, ctx.current_actor, nil, nil, nil, nil)
+				end
+
+				self.game_state.transition("act_start")
+			end,
+		},
+
+		act_start = {
+			name = "act_start",
+			enter = function(ctx, state_data)
+				sort_action_queue_by_speed(ctx, data.team)
+				msg.post(GUI_URL, hash("go_act"))
+				msg.post(".", hash("act_finished"))
+
+			end,
+			exit = function(ctx, state_data)
+			end,
+			on_message = function(ctx, message_id, message, sender)
+				if message_id == hash("act_finished") then
+					local hero_killing,enemy_killing = check_battle_result()
+					if hero_killing == true then
+						self.game_state.transition("battle_end", {battle_result = "defeat"})
+					elseif enemy_killing == true then
+						self.game_state.transition("battle_end", {battle_result = "victory"})
+					end
+
+					if #ctx.act_queue == 0 then
+						self.game_state.transition("turn_end")
+					else
+						process_act_queue(ctx)
+					end
+				end
+			end
+		},
+
+		turn_end = {
+			name = "turn_end",
+			enter = function(ctx, state_data)
+				local hero_killing,enemy_killing = check_battle_result()
+				if hero_killing == true then
+					self.game_state.transition("battle_end", {battle_result = "defeat"})
+				elseif enemy_killing == true then
+					self.game_state.transition("battle_end", {battle_result = "victory"})
+				else
+					self.game_state.transition("turn_start")
+				end
+			end
+		},
+
+		battle_end = {
+			name = "battle_end",
+			enter = function(ctx, state_data)
+				if state_data.battle_result == "victory" then
+					msg.post(GUI_URL, hash("go_message"), { key = "victory" })
+					ctx.experience_gained = 100
+					ctx.gold_gained = 50
+				else
+					msg.post(GUI_URL, hash("go_message"), { key = "defeat" })
+				end
+			end,
+
+			exit = function(ctx, state_data)
+			end
+		},
+	}
+	self.game_state.add_states(states)
+
+	self.game_state.transition("battle_setup")
+end
+-- ---------------------------------
+-- Main Functions
+-- ---------------------------------
+function init(self)
+	self.game_state = nil
+	create_state(self)
+end
+
+function update(self, dt)
+	self.game_state.update(dt)
+end
+
+function on_input(self, action_id, action)
+	self.game_state.on_input(action_id, action)
+end
+
+function on_message(self, message_id, message, sender)
+	self.game_state.on_message(message_id, message, sender)
+end
+
+function final(self)
+	self.game_state.destroy()
+	self.game_state = nil
+end
