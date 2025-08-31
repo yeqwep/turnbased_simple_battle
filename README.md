@@ -24,7 +24,7 @@ Big thanks to [@britzl’s Simple Button example](https://github.com/britzl/publ
 ---
 
 ## License
-MIT License – totally free to use, share, and hack around with 🚀  
+MIT License 🚀  
 
 ---
 
